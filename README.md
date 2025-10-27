@@ -1,12 +1,6 @@
 The Fitness and Healthcare Watch Tracker is an IoT-based wearable device designed for remote real-time health monitoring. It continuously measures heart rate (BPM), oxygen saturation (SpO₂), and body temperature, transmitting the data securely to the Arduino IoT Cloud for remote access by healthcare professionals.
 
-Features:
--Real-time monitoring of BPM, SpO₂, and temperature
--Cloud synchronization via MQTT using Arduino IoT Cloud
--Live data visualization on a 1.28” LCD screen (GC9A01A)
--Low-power IoT-enabled operation
--Secure and private data handling
--Potential integration for hospital systems (SQL/EDR)
+Features: Real-time monitoring of BPM, SpO₂, and temperature, Cloud synchronization via MQTT using Arduino IoT Cloud, Live data visualization on a 1.28” LCD screen (GC9A01A), Low-power IoT-enabled operation, Secure and private data handling, Potential integration for hospital systems (SQL/EDR)
 
 Component	Description:
 -Arduino ESP32-S3	Microcontroller with built-in Wi-Fi and Bluetooth
