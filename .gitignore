@@ -1,41 +1,148 @@
-# Prerequisites
-*.d
+#include <Wire.h>
+#include "MAX30105.h"
+#include <SPI.h>
+#include "Adafruit_GFX.h"
+#include "Adafruit_GC9A01A.h"
+#include "thingProperties.h"  // Arduino IoT Cloud Variables
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
+// Define I2C Pins
+#define SDA_PIN 16  
+#define SCL_PIN 15  
+#define LM35_PIN 17  // ADC-capable pin for Temperature Sensor
 
-# Precompiled Headers
-*.gch
-*.pch
+// Initialize Display (GC9A01A)
+Adafruit_GC9A01A tft(9, 8, 11, 10, 14, 12);
 
-# Linker files
-*.ilk
+// Initialize Pulse Oximeter Sensor
+MAX30105 particleSensor;
 
-# Debugger Files
-*.pdb
+// Heart rate variables
+const byte RATE_SIZE = 1;  // No averaging, instant BPM updates
+byte rates[RATE_SIZE];     
+byte rateSpot = 0;
+long lastBeat = 0;
+float beatsPerMinute = 0;
 
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
+// Timing variables
+unsigned long lastTempUpdate = 0;
+unsigned long lastBPMUpdate = 0;
 
-# Fortran module files
-*.mod
-*.smod
+void setup() {
+    Serial.begin(115200);
+    while (!Serial);
+    Serial.println("\nInitializing I²C for MAX30102...");
 
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
+    Wire.begin(SDA_PIN, SCL_PIN);
 
-# Executables
-*.exe
-*.out
-*.app
+    if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {  
+        Serial.println("MAX30102 not found! Check connections.");
+        while (1);
+    }
 
-# debug information files
-*.dwo
+    Serial.println("MAX30102 Initialized Successfully!");
+    particleSensor.setup();
+    particleSensor.setPulseAmplitudeRed(0x10);
+    particleSensor.setPulseAmplitudeIR(0x10);
+
+    Serial.println("Sensor Configured. Place your finger on the sensor.");
+
+    // Initialize Display
+    tft.begin();
+    pinMode(2, OUTPUT);
+    digitalWrite(2, HIGH);
+    tft.fillScreen(GC9A01A_BLACK);
+    tft.setTextSize(2);
+
+    // Initialize Cloud Connection
+    initProperties();
+    ArduinoCloud.begin(ArduinoIoTPreferredConnection);
+}
+
+void loop() {
+    ArduinoCloud.update();  // Sync IoT Cloud
+    unsigned long currentMillis = millis();
+
+    // Read BPM every 10ms
+    if (currentMillis - lastBPMUpdate >= 10) {
+        lastBPMUpdate = currentMillis;
+        long irValue = particleSensor.getIR();
+
+        if (irValue > 2500) {  // If a finger is detected
+            long delta = millis() - lastBeat;
+            if (delta > 120) {  // Ensure a reasonable interval between beats
+                lastBeat = millis();
+                beatsPerMinute = 60000.0 / (delta * 0.5);
+                rates[rateSpot++] = (byte)beatsPerMinute;
+                rateSpot %= RATE_SIZE;
+            }
+        } else {  
+            // No finger detected: Reset BPM and SpO₂
+            beatsPerMinute = 0;
+        }
+
+        bPM = beatsPerMinute;
+        onBPMChange(); // Notify IoT Cloud Dashboard
+    }
+
+    // Read Temperature and SpO2 every 500ms
+    if (currentMillis - lastTempUpdate >= 500) {
+        lastTempUpdate = currentMillis;
+        
+        int rawADC = analogRead(LM35_PIN);
+        float voltage = (rawADC / 4095.0) * 3.3;
+        temperature = voltage * 100.0;
+        onTemperatureChange(); // Notify IoT Cloud Dashboard
+
+        // **SpO2 Calculation - Set to 0 when no finger detected**
+        long redValue = particleSensor.getRed();
+        long irValue = particleSensor.getIR();
+
+        if (irValue > 2500) {  
+            float ratio = (float)redValue / (float)irValue;
+            spo2 = 104 - (17 * ratio);
+        } else {
+            spo2 = 0; // Reset SpO₂ when no finger detected
+        }
+
+        onSpo2Change(); // Notify IoT Cloud Dashboard
+
+        updateDisplay();
+        printToSerial();
+    }
+}
+
+// Function to update the display
+void updateDisplay() {
+    tft.fillScreen(GC9A01A_BLACK);
+
+    int centerX = tft.width() / 2;
+    int centerY = tft.height() / 2;
+
+    // BPM in Red (Top)
+    tft.setTextColor(GC9A01A_RED);
+    String bpmText = "BPM: " + String(bPM);
+    int textWidth = bpmText.length() * 12;
+    tft.setCursor(centerX - textWidth / 2, centerY - 40);
+    tft.print(bpmText);
+
+    // Temperature in Green (Middle)
+    tft.setTextColor(GC9A01A_GREEN);
+    String tempText = "Temp: " + String(temperature) + " C";
+    textWidth = tempText.length() * 12;
+    tft.setCursor(centerX - textWidth / 2, centerY);
+    tft.print(tempText);
+
+    // SpO2 in Blue (Bottom)
+    tft.setTextColor(GC9A01A_BLUE);
+    String spo2Text = "SpO2: " + String(spo2);
+    textWidth = spo2Text.length() * 12;
+    tft.setCursor(centerX - textWidth / 2, centerY + 40);
+    tft.print(spo2Text);
+}`
+
+// Function to print values to Serial Monitor
+void printToSerial() {
+    Serial.print("BPM: "); Serial.println(bPM);
+    Serial.print("Temperature: "); Serial.println(temperature);
+    Serial.print("SpO2: "); Serial.println(spo2);
+}
